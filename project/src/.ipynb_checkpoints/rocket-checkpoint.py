@@ -370,7 +370,7 @@ class Rocket(RocketBase):
     
     
     def simulate_step(self, x0: np.ndarray, Ts: float, u0: np.ndarray, method: str='nonlinear') -> np.ndarray:
-        if not constraint_check(x0, u0):
+        if ~constraint_check(x0, u0):
             raise ValueError("State or input constraints violated")
 
         u0 = self.fuel_dynamics(u0, Ts)
@@ -592,8 +592,6 @@ def constraint_check(x: np.ndarray, u: np.ndarray) -> bool:
                     np.deg2rad(10),  np.deg2rad(10),  np.inf,
                     np.inf,  np.inf,  np.inf,
                     np.inf,  np.inf, np.inf])  # [wx, wy
-    #if not (np.all(u >= LBU-1e-5) and np.all(u <= UBU+1e-5) and np.all(x >= LBX-1e-5) and np.all(x <= UBX+1e-5)):
-    #    raise ValueError("State or input constraints violated")
     return np.all(u >= LBU-1e-5) and np.all(u <= UBU+1e-5) and np.all(x >= LBX-1e-5) and np.all(x <= UBX+1e-5)
 
 
