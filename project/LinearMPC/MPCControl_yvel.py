@@ -14,8 +14,8 @@ class MPCControl_yvel(MPCControl_base):
     u_ids: np.ndarray = np.array([0])
  
     #Tunable matrices
-    Q: np.ndarray = np.diag([1.0, 50.0, 200.0])  # wx, alpha, vy 
-    R = np.diag([0.1])               # input d1
+    Q: np.ndarray = np.diag([10.0, 10.0, 10.0])  # wx, alpha, vy 
+    R = np.diag([1.])               # input d1
  
     # state constraints: enforce tilt angle (alpha) within ±10°.
     state_constr_idx = 1

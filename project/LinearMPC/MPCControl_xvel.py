@@ -9,8 +9,8 @@ class MPCControl_xvel(MPCControl_base): #WHY IS X NOT A STATE? IT IS IN THE LINE
     u_ids: np.ndarray = np.array([1]) #,2 #what is that two here?
 	
 	#Tunable matrices
-    Q = np.diag([1.0, 50.0, 200.0])  # wy, beta, vx 
-    R = np.diag([0.1])               # input d2
+    Q = np.diag([10.0, 10.0, 10.0])  # wy, beta, vx 
+    R = np.diag([1.])               # input d2
 	
 	# state constraints: enforce tilt angle (beta) within ±10°.
     state_constr_idx = 1

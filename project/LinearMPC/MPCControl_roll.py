@@ -12,9 +12,9 @@ class MPCControl_roll(MPCControl_base):
     Q = np.diag([50.0, 50.0])  # wz, gamma 
     R = np.diag([0.1])        # input Pdiff
  
-    # state constraints: enforce tilt angle (gamma) within ±10°.
+    # state constraints: enforce roll angle (gamma) within ±10°.
     state_constr_idx = 1
-    state_constr_limit = np.deg2rad(10.0)
+    state_constr_limit = np.deg2rad(40.0)
  
 	# input constraints  For Pdiff: [-20%, +20%] 
     input_constr_min = -20.0

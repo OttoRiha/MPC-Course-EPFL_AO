@@ -3,6 +3,8 @@ import numpy as np
 from control import dlqr
 from mpt4py import Polyhedron
 from scipy.signal import cont2discrete
+import matplotlib.pyplot as plt
+
 
 
 class MPCControl_base:
@@ -52,9 +54,38 @@ class MPCControl_base:
 
         self._setup_controller()
 
+
+    def max_invariant_set(A_cl, X: Polyhedron, max_iter=30) -> Polyhedron:
+        """
+        Compute invariant set for an autonomous linear time invariant system x^+ = A_cl x
+        """
+        O = X
+        itr = 1
+        converged = False
+        while itr < max_iter:
+            Oprev = O
+            F, f = O.A, O.b
+            # Compute the pre-set
+            O = Polyhedron.from_Hrep(np.vstack((F, F @ A_cl)),np.vstack((f, f)).reshape((-1,)))
+            O.minHrep(True)
+            # Temporary fix since contains() is not robust enough
+            #_ = O.Vrep
+            if O == Oprev:
+                converged = True
+                break
+            itr += 1
+        if converged:
+            print('Maximum invariant set successfully computed after {0} iterations.'.format(itr))
+            # --- Added debug prints ---
+            # print("X.A shape:", X.A.shape)
+            # print("X.b shape:", X.b.shape)
+            # print("C_inf A shape:", None if O.A is None else O.A.shape)
+            # print("C_inf b shape:", None if O.b is None else O.b.shape)
+
+        return O
+
+
     def _setup_controller(self) -> None:
-        #################################################
-        # YOUR CODE HERE
 
         # sizes
         nx = self.nx
@@ -66,14 +97,15 @@ class MPCControl_base:
         # R = np.diag([0.1])        # input Pdiff
 
         #Terminal state computation
-        _, P, _ = dlqr(self.A, self.B, self.Q, self.R)
+        K, P, _ = dlqr(self.A, self.B, self.Q, self.R)
+        K=-K
 
         #Variable definition
         x_var = cp.Variable((nx, N + 1), name='x')
         u_var = cp.Variable((nu, N), name='u')
         x0_param = cp.Parameter((nx,), name='x0')
-        xref_param = cp.Parameter(nx, value=np.zeros(nx))
-        uref_param = cp.Parameter(nu, value=np.zeros(nu))
+        # xref_param = cp.Parameter(nx, value=np.zeros(nx))
+        # uref_param = cp.Parameter(nu, value=np.zeros(nu))
 
         #Constraint definition
         constraints = []
@@ -85,41 +117,127 @@ class MPCControl_base:
         for k in range(N):
             constraints += [x_var[:, k + 1] == self.A @ x_var[:, k] + self.B @ u_var[:, k]]
 
-        # state constraints: enforce tilt angle (gamma) within ±10°.
-        #state_constr_idx = 1
-        #state_constr_limit = np.deg2rad(10.0)
+        # state constraints: depends on the self.state_constr_idx and self.state_constr_limit
         xs_local = self.xs  # numeric array of length nx
         for k in range(N + 1):
             constraints += [
                 xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] <= self.state_constr_limit, 
                 xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] >= -self.state_constr_limit]
 
-        # input constraints  For Pdiff: [-20%, +20%] 
-        #input_constr_min = -20.0
-        #input_constr_max =  20.0
+        # input constraints  depends on  input_constr_max input_constr_min, here us is already us[u_idx]
         us_local = self.us  # numeric array of length nu
         for k in range(N):
             constraints += [
                 us_local + u_var[:, k] <= self.input_constr_max,
                 us_local + u_var[:, k] >= self.input_constr_min]
 
+
+        #Invariant set computation
+        A_cl = self.A + self.B @ K
+        U = Polyhedron.from_Hrep(
+            np.array([[-1], [1]]),
+            np.array([-self.input_constr_min, self.input_constr_max])
+        )
+        KU = Polyhedron.from_Hrep(U.A @ K, U.b)
+        if np.isfinite(self.state_constr_limit):
+            # Build X ONLY if constrained
+            H = np.zeros((2, nx))
+            H[0, self.state_constr_idx] = 1
+            H[1, self.state_constr_idx] = -1
+            h = np.array([self.state_constr_limit, self.state_constr_limit])
+            X = Polyhedron.from_Hrep(H, h)
+
+            X_and_KU = X.intersect(KU)
+            self.O_inf = MPCControl_base.max_invariant_set(A_cl, X_and_KU)
+        else:
+            # No state constraint → terminal set is KU
+            self.O_inf = KU
+
+
+        #Invariant set plotting
+        fig, ax = plt.subplots()
+        # Titles
+        if self.u_ids[0] == 3:
+            ax.set_title("Terminal set (roll MPC)")
+        elif self.u_ids[0] == 1:
+            ax.set_title("Terminal set (x MPC)")
+        elif self.u_ids[0] == 0:
+            ax.set_title("Terminal set (y MPC)")
+        elif self.u_ids[0] == 2:
+            ax.set_title("Terminal set (z MPC)")
+        noinf = self.O_inf.dim
+        # -------- Plot depending on dimension --------
+        if noinf == 1:
+            # 1D invariant set → interval
+            B = Polyhedron.bounding_box(self.O_inf)
+            H = B.A
+            h = B.b
+            lb = -np.inf
+            ub =  np.inf
+            for i in range(H.shape[0]):
+                if H[i, 0] == 1:
+                    ub = min(ub, h[i])
+                elif H[i, 0] == -1:
+                    lb = max(lb, -h[i])
+            ax.plot([lb, ub], [0, 0], linewidth=4)
+            ax.set_yticks([])
+            ax.set_xlabel("state")
+            ax.grid(True)
+        elif noinf >= 2:
+            # 2D projection
+            O_proj = self.O_inf.projection((0, 1))
+            if not O_proj.is_empty:
+                O_proj.plot(ax=ax)
+        plt.show()
+
+
+        # #Invarient set
+        # H = np.zeros((2*nx, nx))
+        # H[2*self.state_constr_idx:2*self.state_constr_idx+2, self.state_constr_idx] = np.array([1, -1])
+        # h = np.zeros(2 * nx)
+        # h[2*self.state_constr_idx:2*self.state_constr_idx+2] = np.array([self.state_constr_limit, self.state_constr_limit])
+        # X = Polyhedron.from_Hrep(H, h)
+        # A_cl=self.A+self.B@K
+        # U = Polyhedron.from_Hrep(np.array([[-1], [1]]), np.array([-self.input_constr_min, self.input_constr_max]))
+        # KU = Polyhedron.from_Hrep(U.A @ K, U.b)
+        # X_and_KU = X.intersect(KU)
+        # if self.state_constr_limit!=np.inf:
+        #     O_inf = MPCControl_base.max_invariant_set(A_cl, X_and_KU)
+        #     self.O_inf=O_inf
+        # else:
+        #     self.O_inf=X_and_KU
+        # fig, ax=plt.subplots(1,1)
+        # if self.u_ids==np.array([3]):
+        #     ax.title("Projected subset for roll MPC")
+        # if self.u_ids==np.array([1]):
+        #     ax.title("Projected subset for x-MPC")
+        # if self.u_ids==np.array([0]):
+        #     ax.title("Projected subset for y-MPC")  
+        # if self.u_ids==np.array([2]):
+        #     ax.title("Projected subset for z-MPC")
+        # O_inf.projection(dims=(0,1)).plot(ax)
+
+        # Terminal Constraints
+        constraints.append(self.O_inf.A @ x_var[:, -1] <= self.O_inf.b)
+
+
         #Cost
         cost = 0
         for k in range(N):
-            dx = x_var[:, k] - xref_param
-            du = u_var[:, k] - uref_param
+            dx = x_var[:, k] #- xref_param
+            du = u_var[:, k] #- uref_param
             cost += cp.quad_form(dx, self.Q) + cp.quad_form(du, self.R)
 
         # terminal cost
-        dxN = x_var[:, N] - xref_param
+        dxN = x_var[:, N] #- xref_param
         cost += cp.quad_form(dxN, P)
 
         #Problem
         self.x_var = x_var
         self.u_var = u_var
         self.x0_param = x0_param
-        self.xref_param = xref_param
-        self.uref_param = uref_param
+        #self.xref_param = xref_param
+        #self.uref_param = uref_param
 
         # Build problem
         objective = cp.Minimize(cost)
@@ -128,8 +246,6 @@ class MPCControl_base:
         # solver options as attributes for later use
         self.solver_opts = {"verbose": False, "warm_start": True}
 
-        # YOUR CODE HERE
-        #################################################
 
     @staticmethod
     def _discretize(A: np.ndarray, B: np.ndarray, Ts: float):
@@ -142,8 +258,6 @@ class MPCControl_base:
     def get_u(
         self, x0: np.ndarray, x_target: np.ndarray = None, u_target: np.ndarray = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        #################################################
-        # YOUR CODE HERE
 
         # Default targets are steady-state (absolute)
         if x_target is None:
@@ -158,11 +272,13 @@ class MPCControl_base:
 
         # set CVXPY parameter values
         self.x0_param.value = x0_dev
-        self.xref_param.value = xref_dev
-        self.uref_param.value = uref_dev
+        #self.xref_param.value = xref_dev
+        #self.uref_param.value = uref_dev
 
         #Solve
-        self.ocp.solve(solver=cp.OSQP, **self.solver_opts)
+        self.ocp.solve(solver=cp.PIQP, **self.solver_opts)
+        if self.ocp.status not in ["optimal", "optimal_inaccurate"]:
+            print("MPC problem:", self.ocp.status)
 
         #retrieve results and convert back to absolute coordinates
         x_opt_dev = np.array(self.x_var.value)
@@ -174,7 +290,5 @@ class MPCControl_base:
 
         # first input to apply (absolute)
         u0 = u_traj[:, 0].flatten()
-        # YOUR CODE HERE
-        #################################################
 
         return u0, x_traj, u_traj
