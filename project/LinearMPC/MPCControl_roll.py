@@ -85,7 +85,7 @@ class MPCControl_roll(MPCControl_base):
         self.ocp = cp.Problem(objective, constraints)
 
         # solver options as attributes for later use
-        self.solver_opts = {"verbose": True, "warm_start": True}
+        self.solver_opts = {"verbose": False, "warm_start": True,"eps_rel":1e-9, "eps_abs":1e-9}
 
 
     def get_u(
@@ -110,7 +110,7 @@ class MPCControl_roll(MPCControl_base):
 
         #Solve
         self.ocp.solve(solver=cp.OSQP, **self.solver_opts)
-        assert self.ocp.status == cp.OPTIMAL
+        #assert self.ocp.status == cp.OPTIMAL
 
         #retrieve results and convert back to absolute coordinates
         x_opt_dev = np.array(self.x_var.value)

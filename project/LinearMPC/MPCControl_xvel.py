@@ -89,7 +89,7 @@ class MPCControl_xvel(MPCControl_base): #WHY IS X NOT A STATE? IT IS IN THE LINE
         self.ocp = cp.Problem(objective, constraints)
 
         # solver options as attributes for later use
-        self.solver_opts = {"verbose": False, "warm_start": True}
+        self.solver_opts = {"verbose": False, "warm_start": True,"eps_rel":1e-9, "eps_abs":1e-9}
 
 
 
