@@ -7,120 +7,17 @@ from .MPCControl_base import MPCControl_base
 class MPCControl_roll(MPCControl_base):
     x_ids: np.ndarray = np.array([2, 5])
     u_ids: np.ndarray = np.array([3])
-
-    def _setup_controller(self) -> None:
-        """
-        Build CVXPY problem for the x-velocity subsystem.
-        The reduced model (self.A, self.B), steady-state (self.xs, self.us),
-        horizon self.N and sampling self.Ts are available from the base class.
-        """
-
-        # sizes
-        nx = self.nx
-        nu = self.nu
-        N = self.N
-
-        #Tunable matrices
-        Q = np.diag([50.0, 50.0])  # wz, gamma 
-        R = np.diag([0.1])        # input Pdiff
-
-        #Terminal state computation
-        _, P, _ = dlqr(self.A, self.B, Q, R)
-
-        #Variable definition
-        x_var = cp.Variable((nx, N + 1), name='x')
-        u_var = cp.Variable((nu, N), name='u')
-        x0_param = cp.Parameter((nx,), name='x0')
-        xref_param = cp.Parameter(nx, value=np.zeros(nx))
-        uref_param = cp.Parameter(nu, value=np.zeros(nu))
-
-        #Constraint definition
-        constraints = []
-
-        # initial condition
-        constraints += [x_var[:, 0] == x0_param]
-
-        # dynamics constraints
-        for k in range(N):
-            constraints += [x_var[:, k + 1] == self.A @ x_var[:, k] + self.B @ u_var[:, k]]
-
-        # state constraints: enforce tilt angle (gamma) within ±10°.
-        gamma_idx = 1
-        gamma_limit = np.deg2rad(10.0)
-        xs_local = self.xs  # numeric array of length nx
-        for k in range(N + 1):
-            constraints += [
-                xs_local[gamma_idx] + x_var[gamma_idx, k] <= gamma_limit, 
-                xs_local[gamma_idx] + x_var[gamma_idx, k] >= -gamma_limit]
-
-        # input constraints 
-        Pdiff_min = -20.0
-        Pdiff_max =  20.0
-        us_local = self.us  # numeric array of length nu
-        for k in range(N):
-            constraints += [
-                us_local + u_var[:, k] <= Pdiff_max,     # For Pdiff: [-20%, +20%] 
-                us_local + u_var[:, k] >= Pdiff_min]
-
-        #Cost
-        cost = 0
-        for k in range(N):
-            dx = x_var[:, k] - xref_param
-            du = u_var[:, k] - uref_param
-            cost += cp.quad_form(dx, Q) + cp.quad_form(du, R)
-
-        # terminal cost
-        dxN = x_var[:, N] - xref_param
-        cost += cp.quad_form(dxN, P)
-
-        #Problem
-        self.x_var = x_var
-        self.u_var = u_var
-        self.x0_param = x0_param
-        self.xref_param = xref_param
-        self.uref_param = uref_param
-
-        # Build problem
-        objective = cp.Minimize(cost)
-        self.ocp = cp.Problem(objective, constraints)
-
-        # solver options as attributes for later use
-        self.solver_opts = {"verbose": False, "warm_start": True,"eps_rel":1e-9, "eps_abs":1e-9}
+ 
+    #Tunable matrices
+    Q = np.diag([50.0, 50.0])  # wz, gamma 
+    R = np.diag([0.1])        # input Pdiff
+ 
+    # state constraints: enforce tilt angle (gamma) within ±10°.
+    state_constr_idx = 1
+    state_constr_limit = np.deg2rad(10.0)
+ 
+	# input constraints  For Pdiff: [-20%, +20%] 
+    input_constr_min = -20.0
+    input_constr_max =  20.0
 
 
-    def get_u(
-        self, x0: np.ndarray, x_target: np.ndarray = None, u_target: np.ndarray = None
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-
-        # Default targets are steady-state (absolute)
-        if x_target is None:
-            x_target = self.xs.copy()
-        if u_target is None:
-            u_target = self.us.copy()
-
-        # Work in deviation coordinates for the solver:
-        x0_dev = x0 - self.xs
-        xref_dev = x_target - self.xs
-        uref_dev = u_target - self.us
-
-        # set CVXPY parameter values
-        self.x0_param.value = x0_dev
-        self.xref_param.value = xref_dev
-        self.uref_param.value = uref_dev
-
-        #Solve
-        self.ocp.solve(solver=cp.OSQP, **self.solver_opts)
-        #assert self.ocp.status == cp.OPTIMAL
-
-        #retrieve results and convert back to absolute coordinates
-        x_opt_dev = np.array(self.x_var.value)
-        u_opt_dev = np.array(self.u_var.value)
-        
-        #Returns without deviation
-        x_traj = x_opt_dev + self.xs.reshape(-1, 1)
-        u_traj = u_opt_dev + self.us.reshape(-1, 1)
-
-        # first input to apply (absolute)
-        u0 = u_traj[:, 0].flatten()
-
-        return u0, x_traj, u_traj
