@@ -92,10 +92,6 @@ class MPCControl_base:
         nu = self.nu
         N = self.N
 
-        #Tunable matrices
-        # Q = np.diag([50.0, 50.0])  # wz, gamma 
-        # R = np.diag([0.1])        # input Pdiff
-
         #Terminal state computation
         K, P, _ = dlqr(self.A, self.B, self.Q, self.R)
         K=-K
@@ -104,8 +100,8 @@ class MPCControl_base:
         x_var = cp.Variable((nx, N + 1), name='x')
         u_var = cp.Variable((nu, N), name='u')
         x0_param = cp.Parameter((nx,), name='x0')
-        # xref_param = cp.Parameter(nx, value=np.zeros(nx))
-        # uref_param = cp.Parameter(nu, value=np.zeros(nu))
+        xref_param = cp.Parameter(nx, value=np.zeros(nx))
+        uref_param = cp.Parameter(nu, value=np.zeros(nu))
 
         #Constraint definition
         constraints = []
@@ -153,7 +149,6 @@ class MPCControl_base:
             # No state constraint → terminal set is KU
             self.O_inf = KU
 
-
         #Invariant set plotting
         fig, ax = plt.subplots()
         # Titles
@@ -191,32 +186,6 @@ class MPCControl_base:
         plt.show()
 
 
-        # #Invarient set
-        # H = np.zeros((2*nx, nx))
-        # H[2*self.state_constr_idx:2*self.state_constr_idx+2, self.state_constr_idx] = np.array([1, -1])
-        # h = np.zeros(2 * nx)
-        # h[2*self.state_constr_idx:2*self.state_constr_idx+2] = np.array([self.state_constr_limit, self.state_constr_limit])
-        # X = Polyhedron.from_Hrep(H, h)
-        # A_cl=self.A+self.B@K
-        # U = Polyhedron.from_Hrep(np.array([[-1], [1]]), np.array([-self.input_constr_min, self.input_constr_max]))
-        # KU = Polyhedron.from_Hrep(U.A @ K, U.b)
-        # X_and_KU = X.intersect(KU)
-        # if self.state_constr_limit!=np.inf:
-        #     O_inf = MPCControl_base.max_invariant_set(A_cl, X_and_KU)
-        #     self.O_inf=O_inf
-        # else:
-        #     self.O_inf=X_and_KU
-        # fig, ax=plt.subplots(1,1)
-        # if self.u_ids==np.array([3]):
-        #     ax.title("Projected subset for roll MPC")
-        # if self.u_ids==np.array([1]):
-        #     ax.title("Projected subset for x-MPC")
-        # if self.u_ids==np.array([0]):
-        #     ax.title("Projected subset for y-MPC")  
-        # if self.u_ids==np.array([2]):
-        #     ax.title("Projected subset for z-MPC")
-        # O_inf.projection(dims=(0,1)).plot(ax)
-
         # Terminal Constraints
         constraints.append(self.O_inf.A @ x_var[:, -1] <= self.O_inf.b)
 
@@ -224,20 +193,20 @@ class MPCControl_base:
         #Cost
         cost = 0
         for k in range(N):
-            dx = x_var[:, k] #- xref_param
-            du = u_var[:, k] #- uref_param
+            dx = x_var[:, k] - xref_param
+            du = u_var[:, k] - uref_param
             cost += cp.quad_form(dx, self.Q) + cp.quad_form(du, self.R)
 
         # terminal cost
-        dxN = x_var[:, N] #- xref_param
+        dxN = x_var[:, N] - xref_param
         cost += cp.quad_form(dxN, P)
 
         #Problem
         self.x_var = x_var
         self.u_var = u_var
         self.x0_param = x0_param
-        #self.xref_param = xref_param
-        #self.uref_param = uref_param
+        self.xref_param = xref_param
+        self.uref_param = uref_param
 
         # Build problem
         objective = cp.Minimize(cost)
@@ -272,8 +241,8 @@ class MPCControl_base:
 
         # set CVXPY parameter values
         self.x0_param.value = x0_dev
-        #self.xref_param.value = xref_dev
-        #self.uref_param.value = uref_dev
+        self.xref_param.value = xref_dev
+        self.uref_param.value = uref_dev
 
         #Solve
         self.ocp.solve(solver=cp.PIQP, **self.solver_opts)
