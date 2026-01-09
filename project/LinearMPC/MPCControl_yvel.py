@@ -14,7 +14,7 @@ class MPCControl_yvel(MPCControl_base):
     u_ids: np.ndarray = np.array([0])
  
     #Tunable matrices
-    Q: np.ndarray = np.diag([10.0, 10.0, 10.0])  # wx, alpha, vy 
+    Q = np.diag([50.0, 50.0, 10.0])  # wx, alpha, vy 
     R = np.diag([1.])               # input d1
  
     # state constraints: enforce tilt angle (alpha) within ±10°.
@@ -24,4 +24,10 @@ class MPCControl_yvel(MPCControl_base):
     # input constraints : max 15° flap angle (delta1)
     input_constr_min = -np.deg2rad(15.0)
     input_constr_max = np.deg2rad(15.0)
+
+    #Soft constraints
+    use_soft_state_constraints = False
+    use_soft_input_constraints = False
+    Sx = 1e4   # state slack weight
+    Su = 1e6   # input slack weight (if enabled)
 

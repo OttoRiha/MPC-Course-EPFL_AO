@@ -420,13 +420,34 @@ class RocketVis:
 
         slider.observe(update_callback, names='value')
 
-        layout = widgets.AppLayout(
-            left_sidebar=fig.canvas, 
-            right_sidebar=pyvista_widget, 
-            footer=widgets.HBox([play, slider]),
-            pane_heights=[0, 5, '30px']
+        # layout = widgets.AppLayout(
+        #     left_sidebar=fig.canvas, 
+        #     right_sidebar=pyvista_widget, 
+        #     footer=widgets.HBox([play, slider]),
+        #     pane_heights=[0, 5, '30px']
+        # )
+        # display(layout)
+
+        fig.canvas.layout = widgets.Layout(
+            width='45vw',
+            height='600px'
         )
+
+        pyvista_widget.layout = widgets.Layout(
+            width='45vw',
+            height='600px'
+        )
+
+        layout = widgets.VBox([
+            widgets.HBox(
+                [fig.canvas, pyvista_widget],
+                layout=widgets.Layout(width='100%', overflow='hidden')
+            ),
+            widgets.HBox([play, slider])
+        ])
+
         display(layout)
+
 
         # Add trajectory to PyVista scene
         if X.shape[0] >= 9:
