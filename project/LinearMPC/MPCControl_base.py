@@ -55,7 +55,7 @@ class MPCControl_base:
         self._setup_controller()
 
 
-    def max_invariant_set(A_cl, X: Polyhedron, max_iter=30) -> Polyhedron:
+    def max_invariant_set(A_cl, X: Polyhedron, mpc_type: str, max_iter=100) -> Polyhedron:
         """
         Compute invariant set for an autonomous linear time invariant system x^+ = A_cl x
         """
@@ -75,12 +75,16 @@ class MPCControl_base:
                 break
             itr += 1
         if converged:
-            print('Maximum invariant set successfully computed after {0} iterations.'.format(itr))
+            print(f"Maximum invariant set successfully computed after {itr} iterations " f"for {mpc_type} MPC.")
+
+            #print('Maximum invariant set successfully computed after {0} iterations'.format(itr))
             # --- Added debug prints ---
             # print("X.A shape:", X.A.shape)
             # print("X.b shape:", X.b.shape)
             # print("C_inf A shape:", None if O.A is None else O.A.shape)
             # print("C_inf b shape:", None if O.b is None else O.b.shape)
+        else:
+            print(f"Not converged"f"for {mpc_type} MPC.")
 
         return O
 
@@ -103,6 +107,13 @@ class MPCControl_base:
         xref_param = cp.Parameter(nx, value=np.zeros(nx))
         uref_param = cp.Parameter(nu, value=np.zeros(nu))
 
+        # Slack variables definition
+        if self.use_soft_state_constraints:
+            eps_x = cp.Variable((1, N + 1), nonneg=True, name="eps_x")
+
+        if self.use_soft_input_constraints:
+            eps_u = cp.Variable((1, N), nonneg=True, name="eps_u")
+
         #Constraint definition
         constraints = []
 
@@ -116,16 +127,40 @@ class MPCControl_base:
         # state constraints: depends on the self.state_constr_idx and self.state_constr_limit
         xs_local = self.xs  # numeric array of length nx
         for k in range(N + 1):
-            constraints += [
-                xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] <= self.state_constr_limit, 
-                xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] >= -self.state_constr_limit]
+            if self.use_soft_state_constraints:
+                constraints += [
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit + eps_x[0, k],
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit - eps_x[0, k],
+                ]
+            else:
+                constraints += [
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit,
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit,
+                ]
 
         # input constraints  depends on  input_constr_max input_constr_min, here us is already us[u_idx]
         us_local = self.us  # numeric array of length nu
         for k in range(N):
-            constraints += [
-                us_local + u_var[:, k] <= self.input_constr_max,
-                us_local + u_var[:, k] >= self.input_constr_min]
+            if self.use_soft_input_constraints:
+                constraints += [
+                    us_local + u_var[:, k] <= self.input_constr_max + eps_u[0, k],
+                    us_local + u_var[:, k] >= self.input_constr_min - eps_u[0, k],
+                ]
+            else:
+                constraints += [
+                    us_local + u_var[:, k] <= self.input_constr_max,
+                    us_local + u_var[:, k] >= self.input_constr_min,
+                ]
+
+        # MPC used
+        if self.u_ids[0] == 3:
+            mpc_type='Roll'
+        elif self.u_ids[0] == 1:
+            mpc_type='X'            
+        elif self.u_ids[0] == 0:
+            mpc_type='Y'            
+        elif self.u_ids[0] == 2:
+            mpc_type='Z' 
 
 
         #Invariant set computation
@@ -144,22 +179,14 @@ class MPCControl_base:
             X = Polyhedron.from_Hrep(H, h)
 
             X_and_KU = X.intersect(KU)
-            self.O_inf = MPCControl_base.max_invariant_set(A_cl, X_and_KU)
+            self.O_inf = MPCControl_base.max_invariant_set(A_cl, X_and_KU, mpc_type=mpc_type)
         else:
             # No state constraint → terminal set is KU
             self.O_inf = KU
 
         #Invariant set plotting
         fig, ax = plt.subplots()
-        # Titles
-        if self.u_ids[0] == 3:
-            ax.set_title("Terminal set (roll MPC)")
-        elif self.u_ids[0] == 1:
-            ax.set_title("Terminal set (x MPC)")
-        elif self.u_ids[0] == 0:
-            ax.set_title("Terminal set (y MPC)")
-        elif self.u_ids[0] == 2:
-            ax.set_title("Terminal set (z MPC)")
+        ax.set_title(f"Terminal set ({mpc_type} MPC)")
         noinf = self.O_inf.dim
         # -------- Plot depending on dimension --------
         if noinf == 1:
@@ -185,7 +212,6 @@ class MPCControl_base:
                 O_proj.plot(ax=ax)
         plt.show()
 
-
         # Terminal Constraints
         constraints.append(self.O_inf.A @ x_var[:, -1] <= self.O_inf.b)
 
@@ -200,6 +226,13 @@ class MPCControl_base:
         # terminal cost
         dxN = x_var[:, N] - xref_param
         cost += cp.quad_form(dxN, P)
+
+        # #Slack costs
+        if self.use_soft_state_constraints:
+            cost += self.Sx * cp.sum_squares(eps_x)
+
+        if self.use_soft_input_constraints:
+            cost += self.Su * cp.sum_squares(eps_u)
 
         #Problem
         self.x_var = x_var
@@ -257,7 +290,17 @@ class MPCControl_base:
         x_traj = x_opt_dev + self.xs.reshape(-1, 1)
         u_traj = u_opt_dev + self.us.reshape(-1, 1)
 
+
+        # #Saturate input 
+        u0_unsat = u_traj[:, 0].flatten()
+
+        u0 = np.clip(u0_unsat, self.input_constr_min, self.input_constr_max)
+
+        if not np.allclose(u0, u0_unsat):
+            print(f"[WARN] Input saturated: {u0_unsat} → {u0}")
+
+
         # first input to apply (absolute)
-        u0 = u_traj[:, 0].flatten()
+        # u0 = u_traj[:, 0].flatten()
 
         return u0, x_traj, u_traj
