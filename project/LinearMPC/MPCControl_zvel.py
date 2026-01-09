@@ -9,7 +9,7 @@ class MPCControl_zvel(MPCControl_base):
     u_ids: np.ndarray = np.array([2])
 
     #Tunable matrices
-    Q = np.diag([20])  # vz 
+    Q = np.diag([200])  # vz 
     R = np.diag([0.1])  # input Pmean
 
     # state constraints: no limits for Vz
@@ -20,12 +20,6 @@ class MPCControl_zvel(MPCControl_base):
     input_constr_min = 40.0
     input_constr_max = 80.0
 		
-    #Soft constraints
-    use_soft_state_constraints = False
-    use_soft_input_constraints = False
-    Sx = 1e4   # state slack weight
-    Su = 1e6   # input slack weight (if enabled)
-
     # only useful for part 5 of the project
     d_estimate: np.ndarray
     d_gain: float
