@@ -223,7 +223,8 @@ class MPCControl_base:
             O_proj = self.O_inf.projection((0, 1))
             if not O_proj.is_empty:
                 O_proj.plot(ax=ax)
-        plt.show()
+
+
         # Terminal Constraints
         constraints.append(self.O_inf.A @ x_var[:, -1] <= self.O_inf.b)
 
