@@ -75,9 +75,10 @@ class MPCControl_base:
                 break
             itr += 1
         if converged:
-            print(f"Maximum invariant set successfully computed after {itr} iterations " f"for {mpc_type} MPC.")
+            print(
+            f"Maximum invariant set successfully computed after {itr} iterations " f"for {mpc_type} MPC.")
 
-            #print('Maximum invariant set successfully computed after {0} iterations'.format(itr))
+            #print('Maximum invariant set successfully computed after {0} iterations for {0} MPC.'.format(itr), mpc_type)
             # --- Added debug prints ---
             # print("X.A shape:", X.A.shape)
             # print("X.b shape:", X.b.shape)
@@ -118,11 +119,11 @@ class MPCControl_base:
         uref_param = cp.Parameter(nu, value=np.zeros(nu))
 
         # Slack variables definition
-        # if self.use_soft_state_constraints:
-        #     eps_x = cp.Variable((1, N + 1), nonneg=True, name="eps_x")
+        if self.use_soft_state_constraints:
+            eps_x = cp.Variable((1, N + 1), nonneg=True, name="eps_x")
 
-        # if self.use_soft_input_constraints:
-        #     eps_u = cp.Variable((1, N), nonneg=True, name="eps_u")
+        if self.use_soft_input_constraints:
+            eps_u = cp.Variable((1, N), nonneg=True, name="eps_u")
 
         #Constraint definition
         constraints = []
@@ -136,42 +137,42 @@ class MPCControl_base:
 
         # state constraints: depends on the self.state_constr_idx and self.state_constr_limit
         xs_local = self.xs  # numeric array of length nx
-        for k in range(N + 1):
-            constraints += [
-                xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] <= self.state_constr_limit, 
-                xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] >= -self.state_constr_limit]
+        # for k in range(N + 1):
+        #     constraints += [
+        #         xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] <= self.state_constr_limit, 
+        #         xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k] >= -self.state_constr_limit]
             
 
-        # for k in range(N + 1):
-        #     if self.use_soft_state_constraints:
-        #         constraints += [
-        #             xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit + eps_x[0, k],
-        #             xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit - eps_x[0, k],
-        #         ]
-        #     else:
-        #         constraints += [
-        #             xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit,
-        #             xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit,
-        #         ]
+        for k in range(N + 1):
+            if self.use_soft_state_constraints:
+                constraints += [
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit + eps_x[0, k],
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit - eps_x[0, k],
+                ]
+            else:
+                constraints += [
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit,
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit,
+                ]
 
         # input constraints  depends on  input_constr_max input_constr_min, here us is already us[u_idx]
         us_local = self.us  # numeric array of length nu
-        for k in range(N):
-            constraints += [
-                us_local + u_var[:, k] <= self.input_constr_max,
-                us_local + u_var[:, k] >= self.input_constr_min]
-            
         # for k in range(N):
-        #     if self.use_soft_input_constraints:
-        #         constraints += [
-        #             us_local + u_var[:, k] <= self.input_constr_max + eps_u[0, k],
-        #             us_local + u_var[:, k] >= self.input_constr_min - eps_u[0, k],
-        #         ]
-        #     else:
-        #         constraints += [
-        #             us_local + u_var[:, k] <= self.input_constr_max,
-        #             us_local + u_var[:, k] >= self.input_constr_min,
-        #         ]
+        #     constraints += [
+        #         us_local + u_var[:, k] <= self.input_constr_max,
+        #         us_local + u_var[:, k] >= self.input_constr_min]
+            
+        for k in range(N):
+            if self.use_soft_input_constraints:
+                constraints += [
+                    us_local + u_var[:, k] <= self.input_constr_max + eps_u[0, k],
+                    us_local + u_var[:, k] >= self.input_constr_min - eps_u[0, k],
+                ]
+            else:
+                constraints += [
+                    us_local + u_var[:, k] <= self.input_constr_max,
+                    us_local + u_var[:, k] >= self.input_constr_min,
+                ]
 
         
 
@@ -234,12 +235,12 @@ class MPCControl_base:
             du = u_var[:, k] - uref_param
             cost += cp.quad_form(dx, self.Q) + cp.quad_form(du, self.R)
 
-        # #Slack costs
-        # if self.use_soft_state_constraints:
-        #     cost += self.Sx * cp.sum_squares(eps_x)
+        #Slack costs
+        if self.use_soft_state_constraints:
+            cost += self.Sx * cp.sum_squares(eps_x)
 
-        # if self.use_soft_input_constraints:
-        #     cost += self.Su * cp.sum_squares(eps_u)
+        if self.use_soft_input_constraints:
+            cost += self.Su * cp.sum_squares(eps_u)
 
 
         # terminal cost
@@ -302,16 +303,16 @@ class MPCControl_base:
         x_traj = x_opt_dev + self.xs.reshape(-1, 1)
         u_traj = u_opt_dev + self.us.reshape(-1, 1)
 
-        # #Saturate input 
-        # u0_unsat = u_traj[:, 0].flatten()
+        #Saturate input 
+        u0_unsat = u_traj[:, 0].flatten()
 
-        # u0 = np.clip(u0_unsat, self.input_constr_min, self.input_constr_max)
+        u0 = np.clip(u0_unsat, self.input_constr_min, self.input_constr_max)
 
-        # if not np.allclose(u0, u0_unsat):
-        #     print(f"[WARN] Input saturated: {u0_unsat} → {u0}")
+        if not np.allclose(u0, u0_unsat):
+            print(f"[WARN] Input saturated: {u0_unsat} → {u0}")
 
 
         # first input to apply (absolute)
-        u0 = u_traj[:, 0].flatten()
+        #u0 = u_traj[:, 0].flatten()
 
         return u0, x_traj, u_traj

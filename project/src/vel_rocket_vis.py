@@ -413,28 +413,28 @@ class RocketVis:
 
 
 
-        Ts = (T[1]-T[0]) / self.anim_rate
-        max_fps = 10.0
-        step = max(1, np.ceil(1 / (Ts * max_fps)).astype(int))
-        play = widgets.Play(value=0, min=0, max=T.shape[0]-1, step=step, interval=1000*step*Ts, description="Press play", disabled=False)
-        slider = widgets.IntSlider(min=0, max=T.shape[0]-1)
+        # Ts = (T[1]-T[0]) / self.anim_rate
+        # max_fps = 10.0
+        # step = max(1, np.ceil(1 / (Ts * max_fps)).astype(int))
+        # play = widgets.Play(value=0, min=0, max=T.shape[0]-1, step=step, interval=1000*step*Ts, description="Press play", disabled=False)
+        # slider = widgets.IntSlider(min=0, max=T.shape[0]-1)
         # widgets.jslink((play, 'value'), (slider, 'value'))
 
         # slider.observe(update_callback, names='value')
 
 
-        # Ts = (T[1] - T[0]) / self.anim_rate
+        Ts = (T[1] - T[0]) / self.anim_rate
 
-        # play = widgets.Play(
-        #     value=0,
-        #     min=0,
-        #     max=T.shape[0] - 1,
-        #     step=1,
-        #     interval=int(1000 * Ts),
-        #     description="Play"
-        # )
+        play = widgets.Play(
+            value=0,
+            min=0,
+            max=T.shape[0] - 1,
+            step=1,
+            interval=int(1000 * Ts),
+            description="Play"
+        )
 
-        # slider = widgets.IntSlider(min=0, max=T.shape[0] - 1)
+        slider = widgets.IntSlider(min=0, max=T.shape[0] - 1)
         widgets.jslink((play, 'value'), (slider, 'value'))
         slider.observe(update_callback, names='value')
 
