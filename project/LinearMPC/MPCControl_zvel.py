@@ -27,7 +27,7 @@ class MPCControl_zvel(MPCControl_base):
     Su = 1e6   # input slack weight (if enabled)
 		
     # only useful for part 5 of the project
-    use_mass_deviation_estimator = True
+    use_mass_deviation_estimator = False
     d_estimate: np.ndarray
     d_gain: float
     L: np.ndarray
@@ -39,13 +39,11 @@ class MPCControl_zvel(MPCControl_base):
     C_hat: np.ndarray
 
     u_prev: np.ndarray
-    x_est_prev: np.ndarray
     d_param: cp.Parameter
 
     if use_mass_deviation_estimator:
         def _setup_controller(self) -> None:
             self.u_prev = self.us.flatten().copy()
-            self.x_est_prev = np.zeros(self.nx)
             
             # Call parent's setup
             super()._setup_controller()
