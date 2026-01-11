@@ -27,7 +27,7 @@ class MPCControl_zvel(MPCControl_base):
     Su = 1e6   # input slack weight (if enabled)
 		
     # only useful for part 5 of the project
-    use_mass_deviation_estimator = True
+    use_mass_deviation_estimator = False
     d_estimate: np.ndarray
     d_gain: float
     L: np.ndarray

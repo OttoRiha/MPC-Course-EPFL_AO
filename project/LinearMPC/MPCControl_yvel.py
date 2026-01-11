@@ -26,7 +26,7 @@ class MPCControl_yvel(MPCControl_base):
     input_constr_max = np.deg2rad(15.0)
 
     #Soft constraints
-    use_soft_state_constraints = False
+    use_soft_state_constraints = True
     use_soft_input_constraints = False
     Sx = 1e4   # state slack weight
     Su = 1e6   # input slack weight (if enabled)
