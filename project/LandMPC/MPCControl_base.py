@@ -52,9 +52,70 @@ class MPCControl_base:
 
         self._setup_controller()
 
+
+
+    # Compute minimal robust invariant set
+    def min_robust_invariant_set(A_cl: np.ndarray, W: Polyhedron, max_iter: int = 30) -> Polyhedron:
+        nx = A_cl.shape[0]
+        Omega = W
+        itr = 0
+        A_cl_ith_power = np.eye(nx)
+        while itr < max_iter:
+            A_cl_ith_power = np.linalg.matrix_power(A_cl, itr)
+            Omega_next = Omega + A_cl_ith_power @ W
+            Omega_next.minHrep()  # optionally: Omega_next.minVrep()
+            if np.linalg.matrix_norm(A_cl_ith_power, ord=2) < 1e-2:
+                print('Minimal robust invariant set computation converged after {0} iterations.'.format(itr))
+                break
+
+            if itr == max_iter:
+                print('Minimal robust invariant set computation did NOT converge after {0} iterations.'.format(itr))
+            
+            Omega = Omega_next
+            itr += 1
+        return Omega_next
+
+
+
+
+    def max_invariant_set(A_cl, X: Polyhedron, mpc_type: str, max_iter=100) -> Polyhedron:
+        """
+        Compute invariant set for an autonomous linear time invariant system x^+ = A_cl x
+        """
+        O = X
+        itr = 1
+        converged = False
+        while itr < max_iter:
+            Oprev = O
+            F, f = O.A, O.b
+            # Compute the pre-set
+            O = Polyhedron.from_Hrep(np.vstack((F, F @ A_cl)),np.vstack((f, f)).reshape((-1,)))
+            O.minHrep(True)
+            # Temporary fix since contains() is not robust enough
+            #_ = O.Vrep
+            if O == Oprev:
+                converged = True
+                break
+            itr += 1
+        if converged:
+            print(f"Maximum invariant set successfully computed after {itr} iterations " f"for {mpc_type} MPC.")
+
+            #print('Maximum invariant set successfully computed after {0} iterations'.format(itr))
+            # --- Added debug prints ---
+            # print("X.A shape:", X.A.shape)
+            # print("X.b shape:", X.b.shape)
+            # print("C_inf A shape:", None if O.A is None else O.A.shape)
+            # print("C_inf b shape:", None if O.b is None else O.b.shape)
+        else:
+            print(f"Not converged"f"for {mpc_type} MPC.")
+
+        return O
+
+
     def _setup_controller(self) -> None:
         #################################################
         # YOUR CODE HERE
+
 
         self.ocp = ...
 
