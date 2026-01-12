@@ -3,6 +3,7 @@ import numpy as np
 from control import dlqr
 from mpt4py import Polyhedron
 from scipy.signal import cont2discrete
+import matplotlib.pyplot as plt
 
 
 class MPCControl_base:
@@ -115,9 +116,112 @@ class MPCControl_base:
     def _setup_controller(self) -> None:
         #################################################
         # YOUR CODE HERE
+        
+        # sizes
+        nx = self.nx
+        nu = self.nu
+        N = self.N
 
+        #Terminal state computation
+        K, P, _ = dlqr(self.A, self.B, self.Q, self.R)
+        K=-K
 
-        self.ocp = ...
+        #Variable definition
+        x_var = cp.Variable((nx, N + 1), name='x')
+        u_var = cp.Variable((nu, N), name='u')
+        x0_param = cp.Parameter((nx,), name='x0')
+        xref_param = cp.Parameter(nx, value=np.zeros(nx))
+        uref_param = cp.Parameter(nu, value=np.zeros(nu))
+
+        # Slack variables definition
+        if self.use_soft_state_constraints:
+            eps_x = cp.Variable((1, N + 1), nonneg=True, name="eps_x")
+
+        if self.use_soft_input_constraints:
+            eps_u = cp.Variable((1, N), nonneg=True, name="eps_u")
+
+        #Constraint definition
+        constraints = []
+
+        # initial condition
+        constraints += [x_var[:, 0] == x0_param]
+
+        # dynamics constraints
+        for k in range(N):
+            constraints += [x_var[:, k + 1] == self.A @ x_var[:, k] + self.B @ u_var[:, k]]
+
+        # state constraints: depends on the self.state_constr_idx and self.state_constr_limit
+        xs_local = self.xs  # numeric array of length nx
+        for k in range(N + 1):
+            if self.use_soft_state_constraints:
+                constraints += [
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit + eps_x[0, k],
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit - eps_x[0, k],
+                ]
+            else:
+                constraints += [
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]<= self.state_constr_limit,
+                    xs_local[self.state_constr_idx] + x_var[self.state_constr_idx, k]>= -self.state_constr_limit,
+                ]
+
+        # input constraints  depends on  input_constr_max input_constr_min, here us is already us[u_idx]
+        us_local = self.us  # numeric array of length nu
+        for k in range(N):
+            if self.use_soft_input_constraints:
+                constraints += [
+                    us_local + u_var[:, k] <= self.input_constr_max + eps_u[0, k],
+                    us_local + u_var[:, k] >= self.input_constr_min - eps_u[0, k],
+                ]
+            else:
+                constraints += [
+                    us_local + u_var[:, k] <= self.input_constr_max,
+                    us_local + u_var[:, k] >= self.input_constr_min,
+                ]
+
+        # MPC used
+        if self.u_ids[0] == 3:
+            mpc_type='Roll'
+        elif self.u_ids[0] == 1:
+            mpc_type='X'            
+        elif self.u_ids[0] == 0:
+            mpc_type='Y'            
+        elif self.u_ids[0] == 2:
+            mpc_type='Z' 
+
+        #no terminal constraints here
+
+        #Cost
+        cost = 0
+        for k in range(N):
+            dx = x_var[:, k] - xref_param
+            du = u_var[:, k] - uref_param
+            cost += cp.quad_form(dx, self.Q) + cp.quad_form(du, self.R)
+
+        # terminal cost
+        dxN = x_var[:, N] - xref_param
+        cost += cp.quad_form(dxN, P)
+
+        # #Slack costs
+        if self.use_soft_state_constraints:
+            cost += self.Sx * cp.sum_squares(eps_x)
+
+        if self.use_soft_input_constraints:
+            cost += self.Su * cp.sum_squares(eps_u)
+
+        #Problem
+        self.x_var = x_var
+        self.u_var = u_var
+        self.x0_param = x0_param
+        self.xref_param = xref_param
+        self.uref_param = uref_param
+
+        # Build problem
+        objective = cp.Minimize(cost)
+        self.ocp = cp.Problem(objective, constraints)
+
+        # solver options as attributes for later use
+        self.solver_opts = {"verbose": False, "warm_start": True}
+
 
         # YOUR CODE HERE
         #################################################
@@ -136,10 +240,45 @@ class MPCControl_base:
         #################################################
         # YOUR CODE HERE
 
-        u0 = ...
-        x_traj = ...
-        u_traj = ...
+        # Default targets are steady-state (absolute)
+        if x_target is None:
+            x_target = self.xs.copy()
+        if u_target is None:
+            u_target = self.us.copy()
 
+        # Work in deviation coordinates for the solver:
+        x0_dev = x0 - self.xs
+        xref_dev = x_target - self.xs
+        uref_dev = u_target - self.us
+
+        # set CVXPY parameter values
+        self.x0_param.value = x0_dev
+        self.xref_param.value = xref_dev
+        self.uref_param.value = uref_dev
+
+        #Solve
+        self.ocp.solve(solver=cp.PIQP, **self.solver_opts)
+        if self.ocp.status not in ["optimal", "optimal_inaccurate"]:
+            print("MPC problem:", self.ocp.status)
+
+        #retrieve results and convert back to absolute coordinates
+        x_opt_dev = np.array(self.x_var.value)
+        u_opt_dev = np.array(self.u_var.value)
+
+        #Returns without deviation
+        x_traj = x_opt_dev + self.xs.reshape(-1, 1)
+        u_traj = u_opt_dev + self.us.reshape(-1, 1)
+
+
+        # #Saturate input 
+        u0_unsat = u_traj[:, 0].flatten()
+
+        u0 = np.clip(u0_unsat, self.input_constr_min, self.input_constr_max)
+
+        if not np.allclose(u0, u0_unsat):
+            print(f"[WARN] Input saturated: {u0_unsat} → {u0}")
+
+        u0 = u0.flatten()
         # YOUR CODE HERE
         #################################################
 

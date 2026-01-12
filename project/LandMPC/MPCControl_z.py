@@ -166,8 +166,8 @@ class MPCControl_z(MPCControl_base):
         constraints = []
 
         # initial condition: x0 in z0 + E 
-        # constraints += [E.A @ (x0_param - x_var[:, 0]) <= E.b]
-        constraints += [x_var[:, 0] == x0_param]
+        constraints += [E.A @ (x0_param - x_var[:, 0]) <= E.b]
+        # constraints += [x_var[:, 0] == x0_param]
 
         # dynamics constraints
         for k in range(N):
@@ -220,12 +220,6 @@ class MPCControl_z(MPCControl_base):
         # solver options as attributes for later use
         self.solver_opts = {"verbose": False, "warm_start": True}
 
-
-
-
-
-        # self.ocp = ...
-
         # YOUR CODE HERE
         #################################################
 
@@ -276,10 +270,6 @@ class MPCControl_z(MPCControl_base):
         # Return full prediction trajectories for visualization
         x_traj = z_opt_dev + self.xs.reshape(-1, 1) if z_opt_dev is not None else np.zeros((self.nx, self.N+1)) # nominal trajectory
         u_traj = v_opt_dev + self.us.reshape(-1, 1) if v_opt_dev is not None else np.zeros((self.nu, self.N))  # nominal control trajectory
-
-        # u0 = ...
-        # x_traj = ...
-        # u_traj = ...
 
         # YOUR CODE HERE
         #################################################
