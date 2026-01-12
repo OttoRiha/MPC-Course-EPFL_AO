@@ -14,7 +14,7 @@ class MPCControl_z(MPCControl_base):
 
     # Tunable matrices for tube MPC
     Q = np.diag([20.0, 50.0])  # [vz, z] - heavier weight on position
-    R = np.diag([1])          # [Pavg] - smaller to allow more control effort
+    R = np.diag([0.1])          # [Pavg] - smaller to allow more control effort
 
     # State constraints: z >= 0
     state_constr_idx = 1  # z position
@@ -46,15 +46,7 @@ class MPCControl_z(MPCControl_base):
         self.K = K
         print(f"K: {K}")
         # MPC used
-        if self.u_ids[0] == 3:
-            mpc_type='Roll'
-        elif self.u_ids[0] == 1:
-            mpc_type='X'            
-        elif self.u_ids[0] == 0:
-            mpc_type='Y'            
-        elif self.u_ids[0] == 2:
-            mpc_type='Z' 
-
+        mpc_type='Z' 
 
         #Variable definition
         x_var = cp.Variable((nx, N + 1), name='x')
@@ -77,50 +69,20 @@ class MPCControl_z(MPCControl_base):
         h = np.array([self.state_constr_min, self.state_constr_max])
         X = Polyhedron.from_Hrep(H, h)
 
-        KU = Polyhedron.from_Hrep(U.A @ K, U.b)
-        # Compute the terminal set for nominal mpc
-        X_and_KU = X.intersect(KU)
-        Xf = MPCControl_base.max_invariant_set(A_cl, X_and_KU, mpc_type=mpc_type)
-
         #min robust invariant set computation
 
         W = Polyhedron.from_Hrep(np.array([[-1], [1]]),
                                  np.array([-self.w_min, self.w_max]))
         # Map to state space: Bd @ w
         W_state = W.affine_map(self.B)  # Now 2D polyhedron
-
         E = MPCControl_base.min_robust_invariant_set(A_cl, W_state)
-
-         # visualization
-        # fig3, ax3 = plt.subplots(1, 1)
-        # X.plot(ax3, color='g', opacity=0.5, label=r'$\mathcal{X}$')
-        # W.plot(ax3, color='b', opacity=0.5, label=r'$\mathcal{W}$') #'$\tilde{\mathcal{X}}_f$')
-        # E.plot(ax3, color='b', opacity=0.5, label=r'$\mathcal{E}$') 
-        # plt.legend()
-        # plt.show()
 
         # tightened state constraints
         X_tilde = X - E
 
         # tightened input constraints
         KE = E.affine_map(K) 
-
         U_tilde = U - KE
-        
-        if X.is_empty:
-            print("CRITICAL: X is empty!")
-        if U.is_empty:
-            print("CRITICAL: U is empty!")
-        if W.is_empty:
-            print("CRITICAL: W is empty!")
-        if E.is_empty:
-            print("CRITICAL: E is empty!")
-        if X_tilde.is_empty:
-            print("CRITICAL: X_tilde is empty! Make Q larger or W smaller.")
-            print(f"X vertices: {X.V if hasattr(X, 'V') and X.V is not None else 'N/A'}")
-            print(f"E vertices: {E.V if hasattr(E, 'V') and E.V is not None else 'N/A'}")
-        if U_tilde.is_empty:
-            print("CRITICAL: U_tilde is empty! Make R larger or W smaller.")
 
         print(f"X_tilde vertices:\n{X_tilde.V}")
         print(f"U_tilde vertices:\n{U_tilde.V}")
@@ -150,18 +112,6 @@ class MPCControl_z(MPCControl_base):
             print("CRITICAL: Xf_tilde is empty! Terminal set computation failed.")
         print(f"Terminal set Xf_tilde computed with {Xf_tilde.A.shape[0]} constraints")
         
-        
-        
-
-        #TODO: Visualisation of these constraints
-
-        #                 visualization
-        # fig3, ax3 = plt.subplots(1, 1)
-        # X_tilde.plot(ax3, color='g', opacity=0.5, label=r'$\mathcal{X}_f$')
-        # U_tilde.plot(ax3, color='b', opacity=0.5, label=r'$\tilde{\mathcal{X}}_f$')
-        # plt.legend()
-        # plt.show()
-
         #Constraint definition
         constraints = []
 
@@ -188,7 +138,7 @@ class MPCControl_z(MPCControl_base):
             constraints.append(Xf_tilde.A @ x_var[:, -1] <= Xf_tilde.b)
 
 
-                # visualization
+        # visualization
         fig3, ax3 = plt.subplots(1, 1)
         E.plot(ax3, color='g', opacity=0.5, label=r'$\mathcal{E}$')
         Xf_tilde.plot(ax3, color='b', opacity=0.5, label=r'$\tilde{\mathcal{X}}_f$')
@@ -254,9 +204,9 @@ class MPCControl_z(MPCControl_base):
         z_opt_dev = np.array(self.x_var.value)  # nominal state trajectory
         v_opt_dev = np.array(self.u_var.value)  # nominal control trajectory
         
-        # Tube MPC: Apply ancillary feedback controller
+        # Tube MPC ancillary feedback controller
         # u0 = v0 + K(x0 - z0)
-        K = self.K  # Store K as attribute in _setup_controller
+        K = self.K  
         u0_dev = v_opt_dev[:, 0] + K @ (x0_dev - z_opt_dev[:, 0])
         
         # Convert to absolute coordinates

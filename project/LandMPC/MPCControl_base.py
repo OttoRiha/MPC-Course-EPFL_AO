@@ -64,7 +64,7 @@ class MPCControl_base:
         while itr < max_iter:
             A_cl_ith_power = np.linalg.matrix_power(A_cl, itr)
             Omega_next = Omega + A_cl_ith_power @ W
-            Omega_next.minHrep()  # optionally: Omega_next.minVrep()
+            Omega_next.minHrep()
             if np.linalg.matrix_norm(A_cl_ith_power, ord=2) < 1e-2:
                 print('Minimal robust invariant set computation converged after {0} iterations.'.format(itr))
                 break
@@ -92,8 +92,6 @@ class MPCControl_base:
             # Compute the pre-set
             O = Polyhedron.from_Hrep(np.vstack((F, F @ A_cl)),np.vstack((f, f)).reshape((-1,)))
             O.minHrep(True)
-            # Temporary fix since contains() is not robust enough
-            #_ = O.Vrep
             if O == Oprev:
                 converged = True
                 break
@@ -101,12 +99,6 @@ class MPCControl_base:
         if converged:
             print(f"Maximum invariant set successfully computed after {itr} iterations " f"for {mpc_type} MPC.")
 
-            #print('Maximum invariant set successfully computed after {0} iterations'.format(itr))
-            # --- Added debug prints ---
-            # print("X.A shape:", X.A.shape)
-            # print("X.b shape:", X.b.shape)
-            # print("C_inf A shape:", None if O.A is None else O.A.shape)
-            # print("C_inf b shape:", None if O.b is None else O.b.shape)
         else:
             print(f"Not converged"f"for {mpc_type} MPC.")
 
@@ -116,7 +108,7 @@ class MPCControl_base:
     def _setup_controller(self) -> None:
         #################################################
         # YOUR CODE HERE
-        
+
         # sizes
         nx = self.nx
         nu = self.nu
@@ -178,16 +170,6 @@ class MPCControl_base:
                     us_local + u_var[:, k] >= self.input_constr_min,
                 ]
 
-        # MPC used
-        if self.u_ids[0] == 3:
-            mpc_type='Roll'
-        elif self.u_ids[0] == 1:
-            mpc_type='X'            
-        elif self.u_ids[0] == 0:
-            mpc_type='Y'            
-        elif self.u_ids[0] == 2:
-            mpc_type='Z' 
-
         #no terminal constraints here
 
         #Cost
@@ -201,7 +183,7 @@ class MPCControl_base:
         dxN = x_var[:, N] - xref_param
         cost += cp.quad_form(dxN, P)
 
-        # #Slack costs
+        # Slack costs
         if self.use_soft_state_constraints:
             cost += self.Sx * cp.sum_squares(eps_x)
 
@@ -221,7 +203,6 @@ class MPCControl_base:
 
         # solver options as attributes for later use
         self.solver_opts = {"verbose": False, "warm_start": True}
-
 
         # YOUR CODE HERE
         #################################################
@@ -269,8 +250,7 @@ class MPCControl_base:
         x_traj = x_opt_dev + self.xs.reshape(-1, 1)
         u_traj = u_opt_dev + self.us.reshape(-1, 1)
 
-
-        # #Saturate input 
+        #Saturate input 
         u0_unsat = u_traj[:, 0].flatten()
 
         u0 = np.clip(u0_unsat, self.input_constr_min, self.input_constr_max)
