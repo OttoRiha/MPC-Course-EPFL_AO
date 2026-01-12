@@ -70,14 +70,14 @@ class MPCControl_z(MPCControl_base):
             np.array([[-1], [1]]),
             np.array([-self.input_constr_min, self.input_constr_max])
         )
-        KU = Polyhedron.from_Hrep(U.A @ K, U.b)
-     
+        
         H = np.zeros((2, nx))
-        H[0, self.state_constr_idx] = 1
-        H[1, self.state_constr_idx] = -1
-        h = np.array([-self.state_constr_max, self.state_constr_min])
+        H[0, self.state_constr_idx] = -1
+        H[1, self.state_constr_idx] = 1
+        h = np.array([self.state_constr_min, self.state_constr_max])
         X = Polyhedron.from_Hrep(H, h)
 
+        KU = Polyhedron.from_Hrep(U.A @ K, U.b)
         # Compute the terminal set for nominal mpc
         X_and_KU = X.intersect(KU)
         Xf = MPCControl_base.max_invariant_set(A_cl, X_and_KU, mpc_type=mpc_type)
@@ -91,6 +91,14 @@ class MPCControl_z(MPCControl_base):
 
         E = MPCControl_base.min_robust_invariant_set(A_cl, W_state)
 
+         # visualization
+        # fig3, ax3 = plt.subplots(1, 1)
+        # X.plot(ax3, color='g', opacity=0.5, label=r'$\mathcal{X}$')
+        # W.plot(ax3, color='b', opacity=0.5, label=r'$\mathcal{W}$') #'$\tilde{\mathcal{X}}_f$')
+        # E.plot(ax3, color='b', opacity=0.5, label=r'$\mathcal{E}$') 
+        # plt.legend()
+        # plt.show()
+
         # tightened state constraints
         X_tilde = X - E
 
@@ -98,11 +106,25 @@ class MPCControl_z(MPCControl_base):
         KE = E.affine_map(K) 
 
         U_tilde = U - KE
-
+        
+        if X.is_empty:
+            print("CRITICAL: X is empty!")
+        if U.is_empty:
+            print("CRITICAL: U is empty!")
+        if W.is_empty:
+            print("CRITICAL: W is empty!")
+        if E.is_empty:
+            print("CRITICAL: E is empty!")
         if X_tilde.is_empty:
             print("CRITICAL: X_tilde is empty! Make Q larger or W smaller.")
+            print(f"X vertices: {X.V if hasattr(X, 'V') and X.V is not None else 'N/A'}")
+            print(f"E vertices: {E.V if hasattr(E, 'V') and E.V is not None else 'N/A'}")
         if U_tilde.is_empty:
             print("CRITICAL: U_tilde is empty! Make R larger or W smaller.")
+
+        print(f"X_tilde vertices:\n{X_tilde.V}")
+        print(f"U_tilde vertices:\n{U_tilde.V}")
+        print(f"U_tilde has {U_tilde.A.shape[0]} constraints")
 
         # move into deviate coordinates H * (xs + dx) <= k  =>  H * dx <= k - H * xs
         h_x_delta = X_tilde.b - X_tilde.A @ self.xs
@@ -111,19 +133,29 @@ class MPCControl_z(MPCControl_base):
         h_u_delta = U_tilde.b - U_tilde.A @ self.us
         U_tilde_delta = Polyhedron.from_Hrep(U_tilde.A, h_u_delta)
 
-        X_tilde_and_KU_tilde_delta = X_tilde_delta.intersect(Polyhedron.from_Hrep(U_tilde_delta.A @ K, U_tilde_delta.b))
-
-        # 4. Terminal Set berechnen (jetzt ist der Ursprung zulässig!)
-        Xf_tilde = MPCControl_base.max_invariant_set(A_cl, X_tilde_and_KU_tilde_delta, mpc_type=mpc_type)
-
-
+        if not X_tilde_delta.contains(np.zeros(nx)):
+            print("WARNING: X_tilde_dev doesn't contain origin! Steady state might be infeasible.")
+            
+        if not U_tilde_delta.contains(np.zeros(nu)):
+            print("WARNING: U_tilde_dev doesn't contain origin! Steady state might be infeasible.")
+        
         # Compute the terminal set for tube mpc
-        X_tilde_and_KU_tilde_delta = X_tilde.intersect(Polyhedron.from_Hrep(U_tilde.A @ K, U_tilde.b))
+        X_tilde_and_KU_tilde_delta = X_tilde_delta.intersect(Polyhedron.from_Hrep(U_tilde_delta.A @ K, U_tilde_delta.b))
+        if X_tilde_and_KU_tilde_delta.is_empty:
+            print("CRITICAL: X_tilde ∩ K*U_tilde is empty! Cannot compute terminal set.")
+
+
         Xf_tilde = MPCControl_base.max_invariant_set(A_cl, X_tilde_and_KU_tilde_delta, mpc_type=mpc_type)
+        if Xf_tilde.is_empty:
+            print("CRITICAL: Xf_tilde is empty! Terminal set computation failed.")
+        print(f"Terminal set Xf_tilde computed with {Xf_tilde.A.shape[0]} constraints")
+        
+        
+        
 
         #TODO: Visualisation of these constraints
 
-                        # visualization
+        #                 visualization
         # fig3, ax3 = plt.subplots(1, 1)
         # X_tilde.plot(ax3, color='g', opacity=0.5, label=r'$\mathcal{X}_f$')
         # U_tilde.plot(ax3, color='b', opacity=0.5, label=r'$\tilde{\mathcal{X}}_f$')
@@ -156,12 +188,12 @@ class MPCControl_z(MPCControl_base):
             constraints.append(Xf_tilde.A @ x_var[:, -1] <= Xf_tilde.b)
 
 
-        #         # visualization
-        # fig3, ax3 = plt.subplots(1, 1)
-        # Xf.plot(ax3, color='g', opacity=0.5, label=r'$\mathcal{X}_f$')
-        # Xf_tilde.plot(ax3, color='b', opacity=0.5, label=r'$\tilde{\mathcal{X}}_f$')
-        # plt.legend()
-        # plt.show()
+                # visualization
+        fig3, ax3 = plt.subplots(1, 1)
+        E.plot(ax3, color='g', opacity=0.5, label=r'$\mathcal{E}$')
+        Xf_tilde.plot(ax3, color='b', opacity=0.5, label=r'$\tilde{\mathcal{X}}_f$')
+        plt.legend()
+        plt.show()
 
         #Cost
         cost = 0
